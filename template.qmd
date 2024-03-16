@@ -1,6 +1,6 @@
 ---
 title: "Lab 5: Sea-Level Rise"
-author: "<Your Name (NetID)>"
+author: "<Anna Delesalle (ajd16)>"
 jupyter: julia-1.10
 date: 2024-02-16
 
@@ -9,18 +9,18 @@ format:
 
     # YOU DO NOT NEED BOTH PDF AND DOCX.
     # COMMENT OR DELETE THE ONE YOU DON'T WANT TO USE.
-    pdf:
-        documentclass: article
-        fontsize: 11pt
-        geometry:
-            - margin=1in  
-        number-sections: true
-        code-line-numbers: true
-    #docx: 
-    #    toc: true
-    #    fig-format: png
+    #pdf:
+    #    documentclass: article
+    #    fontsize: 11pt
+    #    geometry:
+    #        - margin=1in  
     #    number-sections: true
     #    code-line-numbers: true
+    docx: 
+        toc: true
+        fig-format: png
+        number-sections: true
+        code-line-numbers: true
 
 date-format: "ddd., MMM. D"
 bibliography: references.bib
@@ -60,3 +60,197 @@ Plots.default(; margin=5Plots.mm)
 using Revise
 using HouseElevation
 ```
+
+# Exploratory Modeling
+## Apply the model to your site
+1. Build your own house object, based on the house you’ve been using (or you can switch if you’d like)
+
+```{julia}
+house = let
+    haz_fl_dept = CSV.read("data/haz_fl_dept.csv", DataFrame) # read in the file
+    desc = "Cafeteria Restaurant, structure"
+    row = @rsubset(haz_fl_dept, :Description == desc)[1, :] # select the row I want
+    area = 672u"ft^2"
+    height_above_gauge = 4u"ft"
+    House(
+        row;
+        area = area,
+        height_above_gauge = height_above_gauge,
+        value_usd = 500_000,
+    )
+end
+```
+
+    a. Briefly explain where you got the area, value, and depth-damage curve from
+
+For the area, I was able to calculate it using the scale on Google Maps (the building is a rectangle so I multiplied the length of both sides and adjusted the values to their real size to get the area). The value was an approximated guess looking at the values of current house listings in the same neighborhood as Katie's Seafood House on Zillow. As for the depth-damage curve, I use the code provided in the instructions which uses the House object I created above with information specific to the building I am looking at.  
+
+    b. Plot the depth-damage curve
+
+```{julia}
+let
+    depths = uconvert.(u"ft", (-7.0u"ft"):(1.0u"inch"):(30.0u"ft")) # =formating the graph
+    damages = house.ddf.(depths) ./ 100 # "house" =object defined above and "ddf" =defined in a different file
+    damages_1000_usd = damages .* house.value_usd ./ 1000
+    scatter(
+        depths,
+        damages_1000_usd;
+        xlabel="Flood Depth",
+        ylabel="Damage (Thousand USD)",
+        label="$(house.description)\n($(house.source))",
+        legend=:bottomright,
+        size=(800, 400),
+        yformatter=:plain, # prevents scientific notation
+    )
+end
+```
+
+    c. Plot the cost of raising the house to different elevations from 0 to 14 ft
+
+```{julia}
+let
+    elevations = 0u"ft":0.25u"ft":14u"ft"
+    costs = [elevation_cost(house, eᵢ) for eᵢ in elevations]
+    scatter(
+        elevations,
+        costs ./ 1_000;
+        xlabel="Elevation",
+        ylabel="Cost (Thousand USD)",
+        label="$(house.description)\n($(house.source))",
+        legend=:bottomright,
+        size=(800, 400),
+        yformatter=:plain, # prevents scientific notation
+    )
+end
+```
+
+2. Read in the sea-level rise data
+
+```{julia}
+slr_scenarios = let
+    df = CSV.read("data/slr_oddo.csv", DataFrame)
+    [Oddo17SLR(a, b, c, tstar, cstar) for (a, b, c, tstar, cstar) in eachrow(df)] # =reformating the data set as a table
+end
+println("There are $(length(slr_scenarios)) parameter sets")
+```
+
+```{julia}
+let
+    years = 1900:2150
+    p = plot(;
+        xlabel="Year",
+        ylabel="Mean sea-level (ft)\nwith respect to the year 2000",
+        label="Oddo et al. (2017)",
+        legend=false
+    )
+    for s in rand(slr_scenarios, 250)
+        plot!(p, years, s.(years); color=:lightgrey, alpha=0.5, linewidth=0.5)
+    end
+    p
+end
+```
+
+3. Modify my code to create a function to draw samples of storm surge and the discount rate. Explain your modeling choices!
+
+Creating the function:
+Here I have changed μ to range between 15ft and 20ft because this is the mean height of storm surges around Galveston according to the National Oceanic and Atmospheric Administration https://www.nhc.noaa.gov/surge/ 
+```{julia}
+function draw_surge_distribution() 
+    μ = rand(Normal(20, 15)) # =location parameter (mean/most likely value)
+    σ = rand(Exponential(1.5)) # =scale parameter
+    ξ = rand(Normal(0.1, 0.05)) # =tail
+    GeneralizedExtremeValue(μ, σ, ξ)
+end
+``` 
+
+```{julia}
+[draw_surge_distribution() for _ in 1:1000]
+```
+
+Calculating the discount rate:
+Here I have chosen to keep 0.04 and 0.02 as they correspond to the mean discount rate and standard deviation discount rate, respectively, as previously seen in Lab04. 
+```{julia}
+function draw_discount_rate()
+    return rand(Normal(0.04, 0.02)) 
+end
+```
+
+4. Define an illustrative action, SOW, and model parameters, and run a simulation.
+```{julia}
+p = ModelParams(
+    house=house,
+    years=2024:2083
+)
+```
+
+```{julia}
+sow = SOW(
+    rand(slr_scenarios),
+    draw_surge_distribution(),
+    draw_discount_rate()
+)
+```
+
+```{julia}
+a = Action(3.0u"ft")
+res = run_sim(a, sow, p)
+```
+
+
+## Large ensemble
+1. Sample many SOWs (see below)
+```{julia}
+sows = [SOW(rand(slr_scenarios), draw_surge_distribution(), draw_discount_rate()) for _ in 1:10] # for 10 SOWs
+actions = [Action(3.0u"ft") for _ in 1:10] # these are all the same
+results = [run_sim(a, s, p) for (a, s) in zip(actions, sows)]
+```
+
+2. Sample a range of actions. You can do this randomly, or you can look at just a couple of actions (e.g., 0, 3, 6, 9, 12 ft) – explain your choice.
+I chose to run this loop for the no elevation (0ft), as well as for 5ft, 8ft, and 14ft. While 14ft is not a very realistic actions, including this in the simulation helps contextualize the results for the other values. The 5ft and 8ft made the most sense when looking at the elevation-cost plot above (question 1.c. under "Exploratory Modeling").
+
+3. Run the simulations for each SOW and action. You can use a for loop for this. 
+```{julia}
+all_actions = [Action(0.0u"ft"), Action(5.0u"ft"), Action(8.0u"ft"), Action(14.0u"ft")]
+for a in all_actions
+    print(a)
+    sows = [SOW(rand(slr_scenarios), draw_surge_distribution(), draw_discount_rate()) for _ in 1:10] # for 10 SOWs
+    actions = [a for _ in 1:10] # these are all the same
+    results = [run_sim(a, s, p) for (a, s) in zip(actions, sows)]
+    print(mean(results))
+end
+```
+
+4. Create a DataFrame of your key inputs and results (see below)
+```{julia}
+df = DataFrame(
+    npv=results,
+    Δh_ft=[a.Δh_ft for a in actions],
+    slr_a=[s.slr.a for s in sows],
+    slr_b=[s.slr.b for s in sows],
+    slr_c=[s.slr.c for s in sows],
+    slr_tstar=[s.slr.tstar for s in sows],
+    slr_cstar=[s.slr.cstar for s in sows],
+    surge_μ=[s.surge_dist.μ for s in sows],
+    surge_σ=[s.surge_dist.σ for s in sows],
+    surge_ξ=[s.surge_dist.ξ for s in sows],
+    discount_rate=[s.discount_rate for s in sows],
+)
+```
+
+## Analysis
+Some questions to consider:
+
+* When do you get the best results?
+The best results occurred when I set the action to 8ft.
+
+* When do you get the worst results?
+I had the worst results when I set the action to 0ft.
+
+* What are the most important parameters?
+The most important parameters are the house elevation (height in feet) and the discount rate because they can be easily measured and therefore easier to change in the model. p
+
+* If you had unlimited computing power, would you run more simulations? How many?
+Yes, each time I run this simulation the results are different as it is computing the mean of 10 random scenarios. In order to get a better estimate of the results the simulation should be run closer to 10,000 or 100,000 times.
+
+* What are the implications of your results for decision-making?
+These results can help inform decision-making on how much to elevate the building by and when the optimal time would be to elevate it however, this model should only be used as a resource to help guide the restaurant's decision. This model is not perfect and is not able to take into account all of the uncertainties that will affect the final decision.
