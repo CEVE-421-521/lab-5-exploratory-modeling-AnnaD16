@@ -156,7 +156,7 @@ Creating the function:
 Here I have changed μ to range between 15ft and 20ft because this is the mean height of storm surges around Galveston according to the National Oceanic and Atmospheric Administration https://www.nhc.noaa.gov/surge/ 
 ```{julia}
 function draw_surge_distribution() 
-    μ = rand(Normal(20, 15)) # =location parameter (mean/most likely value)
+    μ = rand(Normal(20, 15)); # =location parameter (mean/most likely value)
     σ = rand(Exponential(1.5)) # =scale parameter
     ξ = rand(Normal(0.1, 0.05)) # =tail
     GeneralizedExtremeValue(μ, σ, ξ)
