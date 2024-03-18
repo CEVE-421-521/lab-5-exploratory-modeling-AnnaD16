@@ -156,7 +156,7 @@ Creating the function:
 Here I have changed μ to range between 15ft and 20ft because this is the mean height of storm surges around Galveston according to the National Oceanic and Atmospheric Administration https://www.nhc.noaa.gov/surge/ 
 ```{julia}
 function draw_surge_distribution() 
-    μ = rand(Normal(20, 15)); # =location parameter (mean/most likely value)
+    μ = rand(Normal(20, 15)) # =location parameter (mean/most likely value)
     σ = rand(Exponential(1.5)) # =scale parameter
     ξ = rand(Normal(0.1, 0.05)) # =tail
     GeneralizedExtremeValue(μ, σ, ξ)
@@ -247,7 +247,7 @@ The best results occurred when I set the action to 8ft.
 I had the worst results when I set the action to 0ft.
 
 * What are the most important parameters?
-The most important parameters are the house elevation (height in feet) and the discount rate because they can be easily measured and therefore easier to change in the model. p
+The most important parameters are the house elevation (height in feet) and the discount rate because they can be easily measured and therefore easier to change in the model. However from this simulation it looks like the storm surge parameters have the most significant impact overall.
 
 * If you had unlimited computing power, would you run more simulations? How many?
 Yes, each time I run this simulation the results are different as it is computing the mean of 10 random scenarios. In order to get a better estimate of the results the simulation should be run closer to 10,000 or 100,000 times.
